@@ -1,0 +1,34 @@
+{
+  "timers": [
+    {
+      "name": "pomodoro",
+      "sequence": [
+        {
+            "name": "Work",
+            "seconds": 1500
+        },
+        {
+            "name": "Relax",
+            "seconds": 300
+        }
+      ]
+    },
+    {
+      "name": "incremental",
+      "sequence": [
+        {
+            "name": "first_sequence",
+            "seconds": 5
+        },
+        {
+            "name": "second_sequence",
+            "seconds": 10
+        },
+        {
+            "name": "third_sequence",
+            "seconds": 15
+        }
+      ]
+    }
+  ]
+}
