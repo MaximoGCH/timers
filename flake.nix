@@ -1,19 +1,58 @@
 {
-  description = "MGCH_timers development shell";
+  description = "mgch timers";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
 
   outputs =
-    { nixpkgs, ... }:
-    let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-    in
     {
-      devShells.${system}.default = pkgs.mkShell {
-        packages = [
-          pkgs.zig
-        ];
-      };
-    };
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+        };
+
+        package = pkgs.stdenv.mkDerivation {
+          pname = "mgch_timers";
+          version = "0.0.0";
+
+          src = ./.;
+
+          nativeBuildInputs = [
+            pkgs.zig
+          ];
+
+          buildPhase = ''
+            zig build -Doptimize=ReleaseSafe
+          '';
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cp zig-out/bin/mgch_timers $out/bin/
+          '';
+        };
+
+      in
+      {
+        packages.default = package;
+
+        apps.default = {
+          type = "app";
+          program = "${package}/bin/mgch_timers";
+        };
+
+        devShells.default = pkgs.mkShell {
+          buildInputs = [
+            pkgs.zig
+          ];
+        };
+      }
+    );
 }
