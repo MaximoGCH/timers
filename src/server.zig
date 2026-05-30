@@ -4,10 +4,16 @@ const Connection = Socket.Connection;
 const spsc_queue = @import("spsc_queue.zig");
 const Settings = @import("Settings.zig");
 
+const ReaderFormat = enum {
+    default,
+    waybar,
+};
+
 const Action = union(enum) {
     add_reader: struct {
         timer_id: usize,
         connection: Connection,
+        format: ReaderFormat,
     },
     toggle: struct {
         timer_id: usize,
@@ -57,11 +63,15 @@ fn on_connect(connection: *Connection, ctx: *const ConnectCtx) void {
             return;
         };
 
+        const format_name = iterator.next() orelse "";
+        const format = std.meta.stringToEnum(ReaderFormat, format_name) orelse ReaderFormat.default;
+
         const slot = ctx.action_queue.reserve_slot() orelse return;
         slot.* = .{
             .add_reader = .{
                 .timer_id = timer_id,
                 .connection = connection.*,
+                .format = format,
             },
         };
         ctx.action_queue.commit_slot();
@@ -157,6 +167,7 @@ const TimerState = struct {
 const ReaderState = struct {
     connection: Connection,
     timer_id: usize,
+    format: ReaderFormat,
 };
 
 const State = struct {
@@ -165,12 +176,22 @@ const State = struct {
     previous: std.Io.Timestamp,
 };
 
-const ReaderOut = struct {
+const DefaultReaderOut = struct {
     sequence_name: []const u8,
     sequence_seconds: i96,
     elapsed_seconds: i96,
     remaining_seconds: i96,
     active: bool,
+};
+
+const WaybarReaderOut = struct {
+    sequence_name: []const u8,
+    sequence_seconds: i96,
+    elapsed_seconds: i96,
+    remaining_seconds: i96,
+    active: bool,
+    class: [][]const u8,
+    alt: []const u8,
 };
 
 fn consumer(allocator: std.mem.Allocator, io: std.Io, queue: *ActionQueue, settings: *const Settings) void {
@@ -232,13 +253,6 @@ fn consumer(allocator: std.mem.Allocator, io: std.Io, queue: *ActionQueue, setti
             const timer = state.timers[reader.timer_id];
             const timer_settings = &settings.timers[reader.timer_id];
             const current_sequence = &timer_settings.sequence[timer.sequence_id];
-            const payload: ReaderOut = .{
-                .sequence_name = current_sequence.name,
-                .sequence_seconds = current_sequence.seconds,
-                .elapsed_seconds = @divFloor(timer.time, std.time.ns_per_s),
-                .remaining_seconds = current_sequence.seconds - (@divFloor(timer.time, std.time.ns_per_s)),
-                .active = timer.active,
-            };
 
             var out = std.Io.Writer.Allocating.init(arena.allocator());
             defer out.deinit();
@@ -247,10 +261,46 @@ fn consumer(allocator: std.mem.Allocator, io: std.Io, queue: *ActionQueue, setti
                 .writer = &out.writer,
                 .options = .{},
             };
-            stringify.write(payload) catch {
-                std.debug.print("Error stringifying to json reader out payload\n", .{});
-                continue;
-            };
+
+            switch (reader.format) {
+                .default => {
+                    const payload: DefaultReaderOut = .{
+                        .sequence_name = current_sequence.name,
+                        .sequence_seconds = current_sequence.seconds,
+                        .elapsed_seconds = @divFloor(timer.time, std.time.ns_per_s),
+                        .remaining_seconds = current_sequence.seconds - (@divFloor(timer.time, std.time.ns_per_s)),
+                        .active = timer.active,
+                    };
+
+                    stringify.write(payload) catch {
+                        std.debug.print("Error stringifying to json reader out payload\n", .{});
+                        continue;
+                    };
+                },
+                .waybar => {
+                    var class: [3][]const u8 = undefined;
+
+                    class[0] = "mgch-timers-sequence";
+                    class[1] = current_sequence.name;
+                    class[2] = if (timer.active) "active" else "paused";
+
+                    const payload: WaybarReaderOut = .{
+                        .sequence_name = current_sequence.name,
+                        .sequence_seconds = current_sequence.seconds,
+                        .elapsed_seconds = @divFloor(timer.time, std.time.ns_per_s),
+                        .remaining_seconds = current_sequence.seconds - (@divFloor(timer.time, std.time.ns_per_s)),
+                        .active = timer.active,
+                        .class = &class,
+                        .alt = if (!timer.active) "paused" else current_sequence.name,
+                    };
+
+                    stringify.write(payload) catch {
+                        std.debug.print("Error stringifying to json reader out payload\n", .{});
+                        continue;
+                    };
+                },
+            }
+
             reader.connection.write(out.writer.buffered()) catch {
                 std.debug.print("Connection {d} closed", .{reader.connection.client_fn});
                 closedConnection.append(allocator, readerI) catch {};
@@ -272,6 +322,7 @@ fn consumer(allocator: std.mem.Allocator, io: std.Io, queue: *ActionQueue, setti
 
                     reader.connection = add_reader.connection;
                     reader.timer_id = add_reader.timer_id;
+                    reader.format = add_reader.format;
                 },
 
                 .toggle => |toggle| {

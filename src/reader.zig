@@ -4,6 +4,7 @@ const Socket = @import("Socket.zig");
 const ConnectionCtx = struct {
     allocator: std.mem.Allocator,
     timer_name: []const u8,
+    format: ?[]const u8,
     io: std.Io,
 };
 
@@ -11,12 +12,13 @@ const MAX_MSG_LEN = 1024;
 
 fn on_connect(connection: *Socket.Connection, ctx: ConnectionCtx) void {
     defer connection.close();
+    var arena_allocator = std.heap.ArenaAllocator.init(ctx.allocator);
+    defer arena_allocator.deinit();
 
-    const payload = std.fmt.allocPrint(ctx.allocator, "reader {s}", .{ctx.timer_name}) catch {
+    const payload = (if (ctx.format) |format| std.fmt.allocPrint(arena_allocator.allocator(), "reader {s} {s}", .{ ctx.timer_name, format }) else std.fmt.allocPrint(arena_allocator.allocator(), "reader {s}", .{ctx.timer_name})) catch {
         std.debug.print("Unexpected error, could not allocate the connection payload", .{});
         return;
     };
-    defer ctx.allocator.free(payload);
     connection.write(payload) catch {
         std.debug.print("The connection was closed, Unexpected error", .{});
         return;
@@ -42,10 +44,11 @@ fn on_connect(connection: *Socket.Connection, ctx: ConnectionCtx) void {
     }
 }
 
-pub fn reader_init(allocator: std.mem.Allocator, socket: *Socket, timer_name: []const u8, io: std.Io) void {
+pub fn reader_init(allocator: std.mem.Allocator, socket: *Socket, io: std.Io, timer_name: []const u8, format_arg: ?[]const u8) void {
     socket.connect(ConnectionCtx, ConnectionCtx{
         .allocator = allocator,
         .timer_name = timer_name,
+        .format = format_arg,
         .io = io,
     }, on_connect) catch {
         std.debug.print("Could not connect with socket name: {s}, fd: {d}\n", .{ socket.name, socket.fd });

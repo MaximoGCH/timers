@@ -29,7 +29,8 @@ pub fn main(init: std.process.Init) !void {
             std.debug.print("Error, missing timmer name after server command\n", .{});
             return;
         };
-        reader.reader_init(init.gpa, socket, timer_arg, init.io);
+        const format_arg = if (args.len > 3) args[3] else null;
+        reader.reader_init(init.gpa, socket, init.io, timer_arg, format_arg);
         return;
     }
 
