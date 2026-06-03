@@ -185,11 +185,7 @@ const DefaultReaderOut = struct {
 };
 
 const WaybarReaderOut = struct {
-    sequence_name: []const u8,
-    sequence_seconds: i96,
-    elapsed_seconds: i96,
-    remaining_seconds: i96,
-    active: bool,
+    text: []const u8,
     class: [][]const u8,
     alt: []const u8,
 };
@@ -284,12 +280,26 @@ fn consumer(allocator: std.mem.Allocator, io: std.Io, queue: *ActionQueue, setti
                     class[1] = current_sequence.name;
                     class[2] = if (timer.active) "active" else "paused";
 
+                    const remaining_seconds = current_sequence.seconds - (@divFloor(timer.time, std.time.ns_per_s));
+                    const minutes = @divTrunc(remaining_seconds, 60);
+                    const seconds = @mod(remaining_seconds, 60);
+
+                    var formatted_time: []const u8 = undefined;
+
+                    if (seconds > 9) {
+                        formatted_time = std.fmt.allocPrint(arena.allocator(), "{s} {d}:{d}", .{ current_sequence.name, minutes, seconds }) catch {
+                            std.debug.print("Error formating waybar text", .{});
+                            continue;
+                        };
+                    } else {
+                        formatted_time = std.fmt.allocPrint(arena.allocator(), "{s} {d}:0{d}", .{ current_sequence.name, minutes, seconds }) catch {
+                            std.debug.print("Error formating waybar text", .{});
+                            continue;
+                        };
+                    }
+
                     const payload: WaybarReaderOut = .{
-                        .sequence_name = current_sequence.name,
-                        .sequence_seconds = current_sequence.seconds,
-                        .elapsed_seconds = @divFloor(timer.time, std.time.ns_per_s),
-                        .remaining_seconds = current_sequence.seconds - (@divFloor(timer.time, std.time.ns_per_s)),
-                        .active = timer.active,
+                        .text = formatted_time,
                         .class = &class,
                         .alt = if (!timer.active) "paused" else current_sequence.name,
                     };
