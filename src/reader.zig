@@ -41,6 +41,10 @@ fn on_connect(connection: *Socket.Connection, ctx: ConnectionCtx) void {
             std.debug.print("Unexpected error trying to write msg to stdout", .{});
             continue;
         };
+        out.writeStreamingAll(ctx.io, "\n") catch {
+            std.debug.print("Unexpected error trying to write msg to stdout", .{});
+            continue;
+        };
     }
 }
 
